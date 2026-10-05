@@ -233,9 +233,31 @@ let chart = null;
 let exportMode = false;
 
 const M = {
-  gfs:  ["GFS Global", "NOAA", "~13 km", "https://api.open-meteo.com/v1/gfs", null],
-  ifs:  ["ECMWF IFS", "ECMWF", "~9 km", "https://api.open-meteo.com/v1/forecast", "ecmwf_ifs025"]
+  // [名称, 机构, 分辨率, 接口, models 参数, 起报时次元数据 ID]
+  gfs:  ["GFS Global", "NOAA", "~13 km", "https://api.open-meteo.com/v1/gfs", null, "ncep_gfs013"],
+  ifs:  ["ECMWF IFS", "ECMWF", "~25 km", "https://api.open-meteo.com/v1/ecmwf", null, "ecmwf_ifs025"]
 };
+
+// 当前小时在逐小时序列中的下标（序列从当地当天 00:00 开始）
+function nowIndex() {
+  const t = D.hourly.time, off = (D.utc_offset_seconds || 0) * 1000, now = Date.now();
+  let k = 0;
+  for (let i = 0; i < t.length; i++) {
+    if (Date.parse(t[i] + "Z") - off <= now) k = i; else break;
+  }
+  return k;
+}
+
+const fmtRun = ts => {
+  const d = new Date(ts * 1000);
+  const p2 = n => String(n).padStart(2, "0");
+  return `${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())} ${p2(d.getUTCHours())}Z 起报`;
+};
+
+function metaText() {
+  const base = D ? ft(D.hourly.time[nowIndex()]) : "--";
+  return `${S.name}<br>${S.lat.toFixed(3)}°N, ${S.lon.toFixed(3)}°E<br>基准 ${base} · 预报时效 +${$("#lead").value} h`;
+}
 
 const ft = s => new Date(s).toLocaleString("zh-CN", {
   month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
@@ -380,17 +402,21 @@ async function load() {
   if (m[4]) p.set("models", m[4]);
 
   $("#status").textContent = "正在获取模式数据…";
+  const runP = fetch(PROXY + encodeURIComponent("https://api.open-meteo.com/data/" + m[5] + "/static/meta.json"))
+    .then(x => x.ok ? x.json() : null).catch(() => null);
   const r = await fetch(PROXY + encodeURIComponent(m[3] + "?" + p));
   if (!r.ok) throw Error("接口错误 " + r.status);
   D = await r.json();
+  const run = await runP;
+  const runText = run?.last_run_initialisation_time ? fmtRun(run.last_run_initialisation_time) : "";
 
-  $("#sub").textContent = m[0];
-  $("#meta").innerHTML = `${S.name}<br>${S.lat.toFixed(3)}°N, ${S.lon.toFixed(3)}°E<br>预报时效 ${$("#lead").value} h`;
+  $("#sub").textContent = runText ? `${m[0]} · ${runText}` : m[0];
+  $("#meta").innerHTML = metaText();
 
   applySize();
   render();
   renderDetail();
-  $("#status").textContent = "更新完成 · " + new Date().toLocaleTimeString("zh-CN");
+  $("#status").textContent = "更新完成 · " + m[0] + "（Open-Meteo " + new URL(m[3]).pathname + "）· " + new Date().toLocaleTimeString("zh-CN");
 }
 
 function applySize() {
@@ -411,7 +437,7 @@ function render() {
   const c = $("#plot");
   const ctx = c.getContext("2d");
   const h = D.hourly;
-  const s = +$("#lead").value;
+  const s = Math.min(nowIndex() + +$("#lead").value, h.time.length - 1);
   const start = Math.max(0, s - 6);
   const end = Math.min(h.time.length, start + 48);
   const n = end - start;
@@ -762,16 +788,18 @@ function render() {
 function renderDetail() {
   if (!D) return;
   const h = D.hourly;
+  const i = nowIndex();
+  const v = (arr, d, u) => arr?.[i] == null ? "--" : arr[i].toFixed(d) + u;
 
   const cards = [
-    ["气温", h.temperature_2m[0].toFixed(1) + " °C"],
-    ["湿度", h.relative_humidity_2m[0] + " %"],
-    ["风速", h.wind_speed_10m[0].toFixed(1) + " km/h"],
-    ["阵风", h.wind_gusts_10m[0].toFixed(1) + " km/h"],
-    ["海平面气压", h.pressure_msl[0].toFixed(0) + " hPa"],
-    ["云量", h.cloud_cover[0] + " %"],
-    ["露点", h.dew_point_2m[0].toFixed(1) + " °C"],
-    ["体感", h.apparent_temperature[0].toFixed(1) + " °C"]
+    ["气温", v(h.temperature_2m, 1, " °C")],
+    ["湿度", v(h.relative_humidity_2m, 0, " %")],
+    ["风速", v(h.wind_speed_10m, 1, " km/h")],
+    ["阵风", v(h.wind_gusts_10m, 1, " km/h")],
+    ["海平面气压", v(h.pressure_msl, 0, " hPa")],
+    ["云量", v(h.cloud_cover, 0, " %")],
+    ["露点", v(h.dew_point_2m, 1, " °C")],
+    ["体感", v(h.apparent_temperature, 1, " °C")]
   ];
   $("#cards").innerHTML = cards.map(([k, v]) =>
     `<div class="mcard"><span class="muted">${k}</span><b>${v}</b></div>`
@@ -936,7 +964,7 @@ $("#refresh").onclick = () => load().catch(e => $("#status").textContent = e.mes
 $("#export").onclick = exp;
 $("#copy").onclick = copy;
 $("#lead").onchange = () => {
-  $("#meta").innerHTML = `${S.name}<br>${S.lat.toFixed(3)}°N, ${S.lon.toFixed(3)}°E<br>预报时效 ${$("#lead").value} h`;
+  $("#meta").innerHTML = metaText();
   render();
 };
 $("#days").onchange = () => load().catch(e => $("#status").textContent = e.message);
@@ -951,6 +979,8 @@ window.addEventListener('resize', () => {
 });
 
 load().catch(e => $("#status").textContent = e.message);
+// 每 10 分钟自动拉取最新模式数据（与代理缓存周期一致）
+setInterval(() => load().catch(e => $("#status").textContent = e.message), 10 * 60 * 1000);
 </script>
 </body>
 </html>
