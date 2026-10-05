@@ -232,9 +232,14 @@ let D = null;
 let chart = null;
 let exportMode = false;
 
+const MODEL_META_URLS = {
+  gfs: 'https://api.open-meteo.com/data/ncep_gfs025/static/meta.json',
+  ifs: 'https://api.open-meteo.com/data/ecmwf_ifs/static/meta.json',
+};
+
 const M = {
   gfs:  ["GFS Global", "NOAA", "~13 km", "https://api.open-meteo.com/v1/gfs", null],
-  ifs:  ["ECMWF IFS", "ECMWF", "~9 km", "https://api.open-meteo.com/v1/forecast", "ecmwf_ifs025"]
+  ifs:  ["ECMWF IFS", "ECMWF", "~25 km", "https://api.open-meteo.com/v1/forecast", "ecmwf_ifs025"]
 };
 
 const ft = s => new Date(s).toLocaleString("zh-CN", {
@@ -362,6 +367,37 @@ async function geo() {
   $("#geo").textContent = `${S.name} · ${S.lat.toFixed(3)}N, ${S.lon.toFixed(3)}E`;
 }
 
+/* 获取当前小时在数组中的索引 */
+function getCurrentHourIndex(hourly) {
+  if (!hourly || !hourly.time) return 0;
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const hh = String(now.getHours()).padStart(2, '0');
+  const targetStr = `${yyyy}-${mm}-${dd}T${hh}:00`;
+  const idx = hourly.time.findIndex(t => t.startsWith(targetStr));
+  return idx >= 0 ? idx : 0;
+}
+
+/* 获取模式起报时间元数据 */
+async function fetchInitTime(modelKey) {
+  const url = MODEL_META_URLS[modelKey];
+  if (!url) return "";
+  try {
+    const r = await fetch(PROXY + encodeURIComponent(url));
+    const j = await r.json();
+    if (j.last_run_initialisation_time) {
+      const d = new Date(j.last_run_initialisation_time * 1000);
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      const hh = String(d.getUTCHours()).padStart(2, '0');
+      return `${mm}-${dd} ${hh}Z 起报`;
+    }
+  } catch (e) { console.warn("获取元数据失败", e); }
+  return "";
+}
+
 async function load() {
   const m = M[S.m];
   const days = +$("#days").value;
@@ -384,8 +420,9 @@ async function load() {
   if (!r.ok) throw Error("接口错误 " + r.status);
   D = await r.json();
 
-  $("#sub").textContent = m[0];
-  $("#meta").innerHTML = `${S.name}<br>${S.lat.toFixed(3)}°N, ${S.lon.toFixed(3)}°E<br>预报时效 ${$("#lead").value} h`;
+  // 获取并显示起报时间
+  const initText = await fetchInitTime(S.m);
+  $("#sub").textContent = initText ? `${m[0]} · ${initText}` : m[0];
 
   applySize();
   render();
@@ -412,7 +449,15 @@ function render() {
   const ctx = c.getContext("2d");
   const h = D.hourly;
   const s = +$("#lead").value;
-  const start = Math.max(0, s - 6);
+  
+  const currentIdx = getCurrentHourIndex(h);
+  const targetIdx = Math.min(h.time.length - 1, currentIdx + s);
+  const baseTimeStr = h.time[currentIdx] ? h.time[currentIdx].replace('T', ' ') : '未知';
+  
+  // 更新图片上的说明文字：基准时刻 + 预报时效
+  $("#meta").innerHTML = `${S.name}<br>${S.lat.toFixed(3)}°N, ${S.lon.toFixed(3)}°E<br>基准 ${baseTimeStr} · 预报时效 +${s}h`;
+
+  const start = Math.max(0, targetIdx - 6);
   const end = Math.min(h.time.length, start + 48);
   const n = end - start;
 
@@ -674,7 +719,7 @@ function render() {
     ctx.fillText(series.time[i], xAt(i), pad.t + plotH + 60);
   }
 
-  const vi = Math.min(s - start, n - 1);
+  const vi = Math.min(s - (start - currentIdx), n - 1); // 修正黄色时效标线位置
   if (vi >= 0) {
     ctx.strokeStyle = "rgba(255,210,80,0.9)";
     ctx.lineWidth = 1.5;
@@ -762,16 +807,22 @@ function render() {
 function renderDetail() {
   if (!D) return;
   const h = D.hourly;
+  const idx = getCurrentHourIndex(h);
+
+  const fmtVal = (arr, idx, decimals = 1, suffix = '') => {
+    if (!arr || arr[idx] == null || isNaN(arr[idx])) return '--';
+    return arr[idx].toFixed(decimals) + suffix;
+  };
 
   const cards = [
-    ["气温", h.temperature_2m[0].toFixed(1) + " °C"],
-    ["湿度", h.relative_humidity_2m[0] + " %"],
-    ["风速", h.wind_speed_10m[0].toFixed(1) + " km/h"],
-    ["阵风", h.wind_gusts_10m[0].toFixed(1) + " km/h"],
-    ["海平面气压", h.pressure_msl[0].toFixed(0) + " hPa"],
-    ["云量", h.cloud_cover[0] + " %"],
-    ["露点", h.dew_point_2m[0].toFixed(1) + " °C"],
-    ["体感", h.apparent_temperature[0].toFixed(1) + " °C"]
+    ["气温", fmtVal(h.temperature_2m, idx, 1, " °C")],
+    ["湿度", fmtVal(h.relative_humidity_2m, idx, 0, " %")],
+    ["风速", fmtVal(h.wind_speed_10m, idx, 1, " km/h")],
+    ["阵风", fmtVal(h.wind_gusts_10m, idx, 1, " km/h")],
+    ["海平面气压", fmtVal(h.pressure_msl, idx, 0, " hPa")],
+    ["云量", fmtVal(h.cloud_cover, idx, 0, " %")],
+    ["露点", fmtVal(h.dew_point_2m, idx, 1, " °C")],
+    ["体感", fmtVal(h.apparent_temperature, idx, 1, " °C")]
   ];
   $("#cards").innerHTML = cards.map(([k, v]) =>
     `<div class="mcard"><span class="muted">${k}</span><b>${v}</b></div>`
@@ -936,7 +987,6 @@ $("#refresh").onclick = () => load().catch(e => $("#status").textContent = e.mes
 $("#export").onclick = exp;
 $("#copy").onclick = copy;
 $("#lead").onchange = () => {
-  $("#meta").innerHTML = `${S.name}<br>${S.lat.toFixed(3)}°N, ${S.lon.toFixed(3)}°E<br>预报时效 ${$("#lead").value} h`;
   render();
 };
 $("#days").onchange = () => load().catch(e => $("#status").textContent = e.message);
