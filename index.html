@@ -1,0 +1,956 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NWP 六要素预报</title>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#ffffff;color:#1e293b;font:14px system-ui,"Microsoft YaHei",sans-serif;-webkit-text-size-adjust:100%}
+header{padding:16px 24px;border-bottom:1px solid #e2e8f0;background:#ffffff}
+.logo{font-size:21px;font-weight:800;color:#0f172a}
+.logo b{color:#2563eb}
+main{max-width:1600px;margin:auto;padding:22px}
+.work{display:grid;grid-template-columns:300px 1fr;gap:18px}
+.panel{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:16px}
+.control{height:max-content;position:sticky;top:10px;max-height:90vh;overflow-y:auto}
+.group{border-bottom:1px solid #e2e8f0;padding-bottom:14px;margin-bottom:14px}
+.group:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+h1{margin:0}
+.muted{color:#64748b;font-size:12px}
+label{display:block;color:#475569;font-size:12px;margin:6px 0}
+input,select,button{width:100%;background:#ffffff;color:#1e293b;border:1px solid #cbd5e1;border-radius:8px;padding:9px;margin:4px 0;font:inherit}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:hover{border-color:#2563eb}
+.active,.primary{background:#2563eb;border-color:#2563eb;color:#fff}
+.active:hover,.primary:hover{background:#1d4ed8}
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.checks label{border:1px solid #cbd5e1;border-radius:7px;padding:6px;display:flex;align-items:center;gap:6px;background:#ffffff;margin:0}
+.checks input{width:auto;margin:0;accent-color:#2563eb}
+.checks-3{grid-template-columns:repeat(3,1fr)}
+.preview{overflow:auto;background:#f8fafc}
+.canvaswrap{background:#eef2f7;padding:15px;overflow-x:auto;display:flex;justify-content:center;border-radius:10px}
+
+#out{position:relative;overflow:hidden;background:#0b1520;color:#e8f1f8}
+#bgImage{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;z-index:0;pointer-events:none}
+#bgOverlay{position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(180deg,rgba(8,16,26,0.35) 0%,rgba(8,16,26,0.50) 45%,rgba(8,16,26,0.62) 100%);z-index:1;pointer-events:none}
+
+.out-head{height:72px;padding:14px 28px;background:linear-gradient(135deg,rgba(10,31,53,0.50),rgba(14,74,122,0.50));color:#fff;display:flex;justify-content:space-between;align-items:center;position:relative;z-index:2}
+.out-title{font-size:22px;font-weight:800;letter-spacing:.5px;text-shadow:0 1px 6px rgba(0,0,0,.75)}
+.out-sub{font-size:12px;opacity:.95;margin-top:2px;text-shadow:0 1px 4px rgba(0,0,0,.75)}
+.out-meta{text-align:right;font-size:12px;line-height:1.55;text-shadow:0 1px 4px rgba(0,0,0,.75)}
+.out-body{padding:12px 20px 16px;display:flex;flex-direction:column;gap:10px;position:relative;z-index:2}
+.layer-bar{display:flex;flex-wrap:wrap;gap:6px}
+.card{background:rgba(11,20,32,0.50);border:1px solid rgba(80,120,160,0.45);border-radius:10px;overflow:hidden}
+.chart-wrap{position:relative;padding:8px}
+#plot{display:block;width:100%;background:rgba(8,16,26,0.42);border-radius:6px}
+.foot{font-size:10px;color:#e0eaf5;margin-top:6px;display:flex;justify-content:space-between;padding:0 4px;position:relative;z-index:2;text-shadow:0 1px 4px rgba(0,0,0,.85)}
+.legend{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:4px 0;font-size:10px;color:#e5eef8;text-shadow:0 1px 3px rgba(0,0,0,.75)}
+.leg-item{display:flex;align-items:center;gap:4px}
+.leg-swatch{width:14px;height:8px;border-radius:2px}
+
+.detail{display:grid;grid-template-columns:1.65fr .8fr;gap:18px;margin-top:18px}
+.detail h2,.panel>h2{margin:0 0 14px;font-size:16px;color:#0f172a}
+.chartbox{position:relative;height:390px;background:#ffffff;border-radius:10px;padding:8px}
+.mcards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.mcard{background:#ffffff;border:1px solid #e2e8f0;padding:13px;border-radius:12px}
+.mcard b{display:block;font-size:21px;margin-top:4px;color:#0f172a}
+
+.notes{margin-top:16px;border-top:1px solid #e2e8f0;padding-top:12px}
+.notes p{margin:0 0 12px;color:#64748b;font-size:12px;line-height:1.6}
+.notes p:last-child{margin-bottom:0}
+
+@media(max-width:1100px){
+  .detail{grid-template-columns:1fr}
+  .chartbox{height:320px}
+}
+@media(max-width:900px){
+  .work{grid-template-columns:1fr}
+  .control{position:static;max-height:none}
+  .canvaswrap{justify-content:flex-start}
+}
+@media(max-width:640px){
+  main{padding:12px}
+  header{padding:12px 16px}
+  .logo{font-size:17px}
+  .panel{padding:12px;border-radius:12px}
+  .group{padding-bottom:10px;margin-bottom:10px}
+  .canvaswrap{padding:8px;border-radius:8px}
+  .chartbox{height:240px;padding:4px}
+  .detail h2,.panel>h2{font-size:14px;margin-bottom:10px}
+  .mcard{padding:10px}
+  .mcard b{font-size:17px}
+  input,select,button{padding:11px 12px;font-size:15px}
+  .checks label{padding:8px 6px}
+  .checks-3{grid-template-columns:repeat(2,1fr)}
+
+  body:not(.exporting) .out-head{padding:10px 14px;height:auto;flex-direction:column;align-items:flex-start;gap:6px}
+  body:not(.exporting) .out-title{font-size:15px}
+  body:not(.exporting) .out-sub{font-size:11px}
+  body:not(.exporting) .out-meta{text-align:left;font-size:11px;line-height:1.4}
+  body:not(.exporting) .out-body{padding:10px 12px 12px;gap:8px}
+  body:not(.exporting) .foot{flex-direction:column;gap:2px;font-size:9px}
+  body:not(.exporting) .legend{font-size:9px;gap:8px;padding:4px 8px 8px}
+}
+@media(max-width:400px){
+  .mcards{grid-template-columns:1fr}
+  .checks{grid-template-columns:1fr}
+  .checks-3{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">NWP <b>六要素预报</b></div>
+</header>
+<main>
+  <div class="work">
+    <aside class="panel control">
+      <div class="group">
+        <b>预报模式</b>
+        <button class="model active" data-m="gfs">GFS Global</button>
+        <button class="model" data-m="ifs">ECMWF IFS</button>
+      </div>
+      <div class="group">
+        <b>地点</b>
+        <input id="place" value="北京">
+        <button id="search" class="primary">搜索地点</button>
+        <div id="geo" class="muted">39.904N, 116.407E</div>
+      </div>
+      <div class="group">
+        <b>预报时效</b>
+        <select id="lead">
+          <option>0</option><option>6</option><option>12</option>
+          <option selected>24</option><option>48</option><option>72</option>
+          <option>96</option><option>120</option>
+        </select>
+        <div class="muted">单位：小时（Forecast Hour）</div>
+        <label>预报长度（数据天数）</label>
+        <select id="days">
+          <option value="5">5 天</option>
+          <option value="7" selected>7 天</option>
+          <option value="10">10 天</option>
+          <option value="16">16 天</option>
+        </select>
+      </div>
+      <div class="group">
+        <b>图层（多选叠加）</b>
+        <div class="checks">
+          <label><input type="checkbox" checked data-p="t">气温</label>
+          <label><input type="checkbox" data-p="td">露点</label>
+          <label><input type="checkbox" checked data-p="h">湿度</label>
+          <label><input type="checkbox" checked data-p="w">风速</label>
+          <label><input type="checkbox" data-p="g">阵风</label>
+          <label><input type="checkbox" checked data-p="r">降水</label>
+          <label><input type="checkbox" data-p="pp">降水概率</label>
+          <label><input type="checkbox" data-p="p">气压</label>
+          <label><input type="checkbox" data-p="c">云量</label>
+          <label><input type="checkbox" checked data-p="barb">风矢</label>
+        </div>
+      </div>
+      <div class="group">
+        <b>成图尺寸</b>
+        <select id="size">
+          <option value="1920x1080" selected>1920 × 1080 (Full HD)</option>
+        </select>
+        <button id="refresh">更新数据</button>
+        <button id="export" class="primary">导出 PNG</button>
+        <button id="copy">复制图片</button>
+      </div>
+      <div id="status" class="muted">加载中…</div>
+    </aside>
+    <section class="panel preview">
+      <div class="muted">导出预览（仅导出下方预报图区域）</div>
+      <div class="canvaswrap">
+        <div id="out">
+          <img id="bgImage" src="background.jpg" crossorigin="anonymous" alt="">
+          <div id="bgOverlay"></div>
+
+          <div class="out-head">
+            <div>
+              <div class="out-title">NWP 六要素预报</div>
+              <div id="sub" class="out-sub">GFS Global</div>
+            </div>
+            <div id="meta" class="out-meta"></div>
+          </div>
+          <div class="out-body">
+            <div id="chips" class="layer-bar"></div>
+            <div class="card">
+              <div class="chart-wrap">
+                <canvas id="plot" width="1600" height="700"></canvas>
+              </div>
+              <div id="legend" class="legend" style="padding:6px 12px 10px"></div>
+            </div>
+            <div class="foot">
+              <span>数据源：Open-Meteo · NOAA GFS / ECMWF IFS</span>
+              <span>www.bamc.top</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="detail">
+    <div class="panel">
+      <h2>逐小时模式预报</h2>
+      <div class="chartbox"><canvas id="dchart"></canvas></div>
+      <div class="muted" style="margin-top:8px">勾选下方要素可切换曲线</div>
+      <div class="checks checks-3" style="margin-top:8px">
+        <label><input type="checkbox" data-var="temp" checked>气温</label>
+        <label><input type="checkbox" data-var="humidity" checked>湿度</label>
+        <label><input type="checkbox" data-var="precip" checked>降水</label>
+        <label><input type="checkbox" data-var="wind" checked>风速</label>
+        <label><input type="checkbox" data-var="gust">阵风</label>
+        <label><input type="checkbox" data-var="pressure">气压</label>
+        <label><input type="checkbox" data-var="dew">露点</label>
+        <label><input type="checkbox" data-var="apparent">体感</label>
+        <label><input type="checkbox" data-var="cloud">云量</label>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>当前模式摘要</h2>
+      <div id="cards" class="mcards"></div>
+      <div class="notes">
+        <p>1. 预报时间均为 UTC 时间，北京时间请 +8 小时</p>
+        <p>2. 建议使用电脑打开</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+
+const PROXY = '/api/models-proxy?url=';
+
+let S = { m: "gfs", lat: 39.9042, lon: 116.4074, name: "北京" };
+let D = null;
+let chart = null;
+let exportMode = false;
+
+const M = {
+  gfs:  ["GFS Global", "NOAA", "~13 km", "https://api.open-meteo.com/v1/gfs", null],
+  ifs:  ["ECMWF IFS", "ECMWF", "~9 km", "https://api.open-meteo.com/v1/forecast", "ecmwf_ifs025"]
+};
+
+const ft = s => new Date(s).toLocaleString("zh-CN", {
+  month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
+});
+
+const bgImg = $("#bgImage");
+const bgReady = new Promise(resolve => {
+  if (bgImg.complete && bgImg.naturalWidth > 0) return resolve(true);
+  bgImg.addEventListener("load", () => resolve(true), { once: true });
+  bgImg.addEventListener("error", () => {
+    bgImg.style.display = "none";
+    $("#bgOverlay").style.display = "none";
+    $("#out").style.background = "#0b1520";
+    console.warn("未找到 background.jpg，已回退纯色背景");
+    resolve(false);
+  }, { once: true });
+});
+
+function lerpColor(a, b, t) {
+  const p = x => parseInt(x.slice(1), 16);
+  const ar = p(a) >> 16, ag = (p(a) >> 8) & 255, ab = p(a) & 255;
+  const br = p(b) >> 16, bg = (p(b) >> 8) & 255, bb = p(b) & 255;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bl = Math.round(ab + (bb - ab) * t);
+  return `rgb(${r},${g},${bl})`;
+}
+function scaleColor(stops, t) {
+  t = Math.max(0, Math.min(1, t));
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [p0, c0] = stops[i], [p1, c1] = stops[i + 1];
+    if (t >= p0 && t <= p1) return lerpColor(c0, c1, (t - p0) / (p1 - p0 || 1));
+  }
+  return stops[stops.length - 1][1];
+}
+const SCALES = {
+  t:  [[0,"#2c0a6e"],[.15,"#1a4db3"],[.3,"#1a9ad6"],[.45,"#3ecf7a"],[.55,"#f0e54a"],[.7,"#f08a2a"],[.85,"#e03a2a"],[1,"#8b0a1a"]],
+  td: [[0,"#1a2a4a"],[.25,"#2a6a9a"],[.5,"#3ab8a0"],[.75,"#e0d060"],[1,"#d06030"]],
+  h:  [[0,"#3a2010"],[.3,"#8a6030"],[.5,"#c0c050"],[.7,"#40a060"],[.9,"#2080c0"],[1,"#1040a0"]],
+  w:  [[0,"#e8f4e8"],[.2,"#a0d0a0"],[.4,"#50b050"],[.6,"#e0c040"],[.8,"#e06020"],[1,"#a02040"]],
+  g:  [[0,"#e8f0f8"],[.25,"#80b0e0"],[.5,"#4080c0"],[.75,"#e08040"],[1,"#c02030"]],
+  r:  [[0,"#ffffff00"],[.1,"#b0e0ff"],[.3,"#40a0e0"],[.5,"#2060c0"],[.7,"#8040c0"],[1,"#c02080"]],
+  pp: [[0,"#ffffff00"],[.2,"#c0e8ff"],[.5,"#60b0e0"],[.8,"#3080c0"],[1,"#1040a0"]],
+  p:  [[0,"#2a1040"],[.3,"#3040a0"],[.5,"#40a080"],[.7,"#e0c040"],[1,"#c04020"]],
+  c:  [[0,"#f0f4f8"],[.3,"#c0d0e0"],[.6,"#8090a8"],[.85,"#405068"],[1,"#182028"]]
+};
+function colorFor(key, val, min, max) {
+  const t = (val - min) / (max - min || 1);
+  return scaleColor(SCALES[key] || SCALES.t, t);
+}
+
+function drawBarb(ctx, x, y, speedKmh, dirDeg, scale = 1) {
+  const knots = speedKmh * 0.539957;
+  const len = 18 * scale * 2;
+  const rad = (dirDeg - 90) * Math.PI / 180;
+  const dx = Math.cos(rad) * len;
+  const dy = Math.sin(rad) * len;
+  ctx.save();
+  ctx.strokeStyle = "#f2f7ff";
+  ctx.fillStyle = "#f2f7ff";
+  ctx.lineWidth = 1.4 * scale * 2;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + dx, y + dy);
+  ctx.stroke();
+
+  let remaining = knots;
+  let pos = 1.0;
+  const spacing = 0.18;
+  const barbLen = 8 * scale * 2;
+  const side = 1;
+
+  while (remaining >= 50) {
+    const px = x + dx * pos, py = y + dy * pos;
+    const bx = Math.cos(rad + Math.PI / 2 * side) * barbLen * 1.2;
+    const by = Math.sin(rad + Math.PI / 2 * side) * barbLen * 1.2;
+    const px2 = x + dx * (pos - 0.12), py2 = y + dy * (pos - 0.12);
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + bx, py + by);
+    ctx.lineTo(px2, py2);
+    ctx.closePath();
+    ctx.fill();
+    remaining -= 50;
+    pos -= 0.2;
+  }
+  while (remaining >= 10) {
+    const px = x + dx * pos, py = y + dy * pos;
+    const bx = Math.cos(rad + Math.PI / 2 * side) * barbLen;
+    const by = Math.sin(rad + Math.PI / 2 * side) * barbLen;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + bx, py + by);
+    ctx.stroke();
+    remaining -= 10;
+    pos -= spacing;
+  }
+  if (remaining >= 5) {
+    const px = x + dx * pos, py = y + dy * pos;
+    const bx = Math.cos(rad + Math.PI / 2 * side) * barbLen * 0.55;
+    const by = Math.sin(rad + Math.PI / 2 * side) * barbLen * 0.55;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + bx, py + by);
+    ctx.stroke();
+  }
+  if (knots < 2) {
+    ctx.beginPath();
+    ctx.arc(x, y, 3 * scale * 2, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+async function geo() {
+  const q = $("#place").value.trim();
+  const r = await fetch(PROXY + encodeURIComponent(
+    "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(q) + "&count=1&language=zh&format=json"
+  ));
+  const j = await r.json();
+  if (!j.results?.length) throw Error("找不到地点");
+  const x = j.results[0];
+  S = { ...S, lat: x.latitude, lon: x.longitude, name: x.name };
+  $("#geo").textContent = `${S.name} · ${S.lat.toFixed(3)}N, ${S.lon.toFixed(3)}E`;
+}
+
+async function load() {
+  const m = M[S.m];
+  const days = +$("#days").value;
+  const hourly = [
+    "temperature_2m", "dew_point_2m", "relative_humidity_2m", "apparent_temperature",
+    "precipitation", "precipitation_probability",
+    "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m",
+    "pressure_msl", "cloud_cover", "weather_code"
+  ].join(",");
+
+  const p = new URLSearchParams({
+    latitude: S.lat, longitude: S.lon,
+    timezone: "auto", forecast_days: days,
+    hourly
+  });
+  if (m[4]) p.set("models", m[4]);
+
+  $("#status").textContent = "正在获取模式数据…";
+  const r = await fetch(PROXY + encodeURIComponent(m[3] + "?" + p));
+  if (!r.ok) throw Error("接口错误 " + r.status);
+  D = await r.json();
+
+  $("#sub").textContent = m[0];
+  $("#meta").innerHTML = `${S.name}<br>${S.lat.toFixed(3)}°N, ${S.lon.toFixed(3)}°E<br>预报时效 ${$("#lead").value} h`;
+
+  applySize();
+  render();
+  renderDetail();
+  $("#status").textContent = "更新完成 · " + new Date().toLocaleTimeString("zh-CN");
+}
+
+function applySize() {
+  const [w, h] = $("#size").value.split("x").map(Number);
+  const out = $("#out");
+  const isPhone = window.innerWidth <= 640;
+  out.style.width = (isPhone && !exportMode) ? "100%" : w + "px";
+  out.style.minHeight = "";
+  const plot = $("#plot");
+  const chartH = Math.round(h * 0.85);
+  const chartW = Math.round(chartH * (1600 / 700));
+  plot.width = chartW;
+  plot.height = chartH;
+}
+
+function render() {
+  if (!D) return;
+  const c = $("#plot");
+  const ctx = c.getContext("2d");
+  const h = D.hourly;
+  const s = +$("#lead").value;
+  const start = Math.max(0, s - 6);
+  const end = Math.min(h.time.length, start + 48);
+  const n = end - start;
+
+  const layers = {
+    t:  $$('input[data-p=t]:checked').length > 0,
+    td: $$('input[data-p=td]:checked').length > 0,
+    h:  $$('input[data-p=h]:checked').length > 0,
+    w:  $$('input[data-p=w]:checked').length > 0,
+    g:  $$('input[data-p=g]:checked').length > 0,
+    r:  $$('input[data-p=r]:checked').length > 0,
+    pp: $$('input[data-p=pp]:checked').length > 0,
+    p:  $$('input[data-p=p]:checked').length > 0,
+    c:  $$('input[data-p=c]:checked').length > 0,
+    barb: $$('input[data-p=barb]:checked').length > 0
+  };
+
+  const series = { t: [], td: [], hu: [], ws: [], wg: [], pr: [], pp: [], ps: [], cl: [], dir: [], time: [] };
+  for (let i = start; i < end; i++) {
+    series.t.push(h.temperature_2m[i] ?? 0);
+    series.td.push(h.dew_point_2m?.[i] ?? 0);
+    series.hu.push(h.relative_humidity_2m[i] ?? 0);
+    series.ws.push(h.wind_speed_10m[i] ?? 0);
+    series.wg.push(h.wind_gusts_10m?.[i] ?? 0);
+    series.pr.push(h.precipitation[i] ?? 0);
+    series.pp.push(h.precipitation_probability?.[i] ?? 0);
+    series.ps.push(h.pressure_msl[i] ?? 1013);
+    series.cl.push(h.cloud_cover[i] ?? 0);
+    series.dir.push(h.wind_direction_10m[i] ?? 0);
+    series.time.push(ft(h.time[i]).replace(",", " "));
+  }
+
+  const W = c.width, H = c.height;
+
+  const axisWidth   = 24;
+  const axisSpacing = 16 * 2 * 1.5;
+  const slot        = axisWidth + axisSpacing;
+
+  const leftKeys = [];
+  if (layers.t) leftKeys.push('t');
+  if (layers.h) leftKeys.push('h');
+  const rightKeys = ['td', 'w', 'r', 'p', 'c'].filter(k => layers[k]);
+
+  const pad = {
+    l: Math.max(100, 30 + leftKeys.length * slot),
+    r: Math.max(100, 40 + rightKeys.length * slot),
+    t: 44,
+    b: 100
+  };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.strokeStyle = "rgba(160,190,220,0.28)";
+  ctx.lineWidth = 1;
+  for (let k = 0; k <= 5; k++) {
+    const y = pad.t + plotH * k / 5;
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(pad.l + plotW, y);
+    ctx.stroke();
+  }
+
+  const xAt = i => pad.l + (n <= 1 ? 0 : i * plotW / (n - 1));
+  const yAt = (v, min, max) => pad.t + (max - v) * plotH / (max - min || 1);
+
+  function labelAt(x, y, text, color, dy) {
+    ctx.save();
+    ctx.font = "bold 22px system-ui";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "rgba(8,16,26,0.9)";
+    ctx.strokeText(text, x, y + dy);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y + dy);
+    ctx.restore();
+  }
+
+  if (layers.r) {
+    const maxR = 50;
+    for (let i = 0; i < n; i += 3) {
+      let sum = 0;
+      for (let k = 0; k < 3 && i + k < n; k++) {
+        sum += series.pr[i + k] ?? 0;
+      }
+      if (sum <= 0) continue;
+      const x = xAt(i);
+      const barH = Math.min((sum / maxR) * plotH, plotH);
+      const col = colorFor("r", sum, 0, maxR);
+      ctx.fillStyle = col.replace("rgb", "rgba").replace(")", ",0.55)");
+      ctx.fillRect(x - 5, pad.t + plotH - barH, 10, barH);
+      labelAt(x, pad.t + plotH - barH - 16, sum.toFixed(1), "#80b8ff", 0);
+    }
+  }
+
+  if (layers.pp) {
+    ctx.beginPath();
+    series.pp.forEach((v, i) => {
+      const x = xAt(i), y = yAt(v, 0, 100);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.lineTo(xAt(n - 1), pad.t + plotH);
+    ctx.lineTo(xAt(0), pad.t + plotH);
+    ctx.closePath();
+    const grd = ctx.createLinearGradient(0, pad.t, 0, pad.t + plotH);
+    grd.addColorStop(0, "rgba(96,160,224,0.35)");
+    grd.addColorStop(1, "rgba(96,160,224,0.05)");
+    ctx.fillStyle = grd;
+    ctx.fill();
+  }
+
+  if (layers.h) {
+    for (let i = 0; i < n - 1; i++) {
+      const x0 = xAt(i), x1 = xAt(i + 1);
+      const y0 = yAt(series.hu[i], 0, 100);
+      const y1 = yAt(series.hu[i + 1], 0, 100);
+      const col = colorFor("h", (series.hu[i] + series.hu[i + 1]) / 2, 0, 100);
+      ctx.fillStyle = col.replace("rgb", "rgba").replace(")", ",0.18)");
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x1, pad.t + plotH);
+      ctx.lineTo(x0, pad.t + plotH);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  if (layers.t) {
+    const minT = Math.floor(Math.min(...series.t)) - 2;
+    const maxT = Math.ceil(Math.max(...series.t)) + 2;
+    ctx.beginPath();
+    series.t.forEach((v, i) => {
+      const x = xAt(i), y = yAt(v, minT, maxT);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.lineTo(xAt(n - 1), pad.t + plotH);
+    ctx.lineTo(xAt(0), pad.t + plotH);
+    ctx.closePath();
+    const grd = ctx.createLinearGradient(0, pad.t, 0, pad.t + plotH);
+    grd.addColorStop(0, "rgba(232,90,90,0.30)");
+    grd.addColorStop(1, "rgba(232,90,90,0.02)");
+    ctx.fillStyle = grd;
+    ctx.fill();
+    ctx.strokeStyle = "#ff9d9d";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    series.t.forEach((v, i) => {
+      const x = xAt(i), y = yAt(v, minT, maxT);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    for (let i = 0; i < n; i += 3) {
+      const x = xAt(i), y = yAt(series.t[i], minT, maxT);
+      labelAt(x, y, series.t[i].toFixed(1), "#ff9d9d", -14);
+    }
+  }
+
+  if (layers.td) {
+    const minT = Math.floor(Math.min(...series.t, ...series.td)) - 2;
+    const maxT = Math.ceil(Math.max(...series.t, ...series.td)) + 2;
+    ctx.strokeStyle = "#7cd8ff";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    series.td.forEach((v, i) => {
+      const x = xAt(i), y = yAt(v, minT, maxT);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (let i = 0; i < n; i += 3) {
+      const x = xAt(i), y = yAt(series.td[i], minT, maxT);
+      labelAt(x, y, series.td[i].toFixed(1), "#7cd8ff", 22);
+    }
+  }
+
+  if (layers.w) {
+    const maxW = Math.max(...series.ws, 10);
+    ctx.strokeStyle = "#70e070";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    series.ws.forEach((v, i) => {
+      const x = xAt(i), y = yAt(v, 0, maxW * 1.15);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    for (let i = 0; i < n; i += 3) {
+      const x = xAt(i), y = yAt(series.ws[i], 0, maxW * 1.15);
+      labelAt(x, y, series.ws[i].toFixed(1), "#70e070", -14);
+    }
+  }
+
+  if (layers.g) {
+    const maxG = Math.max(...series.wg, ...series.ws, 10);
+    ctx.strokeStyle = "#ffb060";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    series.wg.forEach((v, i) => {
+      const x = xAt(i), y = yAt(v, 0, maxG * 1.15);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (let i = 0; i < n; i += 3) {
+      const x = xAt(i), y = yAt(series.wg[i], 0, maxG * 1.15);
+      labelAt(x, y, series.wg[i].toFixed(1), "#ffb060", 22);
+    }
+  }
+
+  if (layers.p) {
+    const minP = Math.floor(Math.min(...series.ps)) - 2;
+    const maxP = Math.ceil(Math.max(...series.ps)) + 2;
+    ctx.strokeStyle = "#f0d070";
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    series.ps.forEach((v, i) => {
+      const x = xAt(i), y = yAt(v, minP, maxP);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    for (let i = 0; i < n; i += 3) {
+      const x = xAt(i), y = yAt(series.ps[i], minP, maxP);
+      labelAt(x, y, series.ps[i].toFixed(0), "#f0d070", -14);
+    }
+  }
+
+  if (layers.c) {
+    ctx.strokeStyle = "rgba(180,200,224,0.85)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    series.cl.forEach((v, i) => {
+      const x = xAt(i), y = yAt(v, 0, 100);
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    for (let i = 0; i < n; i += 3) {
+      const x = xAt(i), y = yAt(series.cl[i], 0, 100);
+      labelAt(x, y, series.cl[i].toFixed(0), "#b8c8dc", 22);
+    }
+  }
+
+  if (layers.barb) {
+    const step = Math.max(1, Math.floor(n / 12));
+    for (let i = 0; i < n; i += step) {
+      drawBarb(ctx, xAt(i), pad.t + plotH * 0.12, series.ws[i], series.dir[i], 0.9);
+    }
+  }
+
+  ctx.fillStyle = "#e0ecf8";
+  ctx.font = "30px system-ui";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  const tStep = Math.max(1, Math.floor(n / 8));
+  for (let i = 0; i < n; i += tStep) {
+    ctx.fillText(series.time[i], xAt(i), pad.t + plotH + 60);
+  }
+
+  const vi = Math.min(s - start, n - 1);
+  if (vi >= 0) {
+    ctx.strokeStyle = "rgba(255,210,80,0.9)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(xAt(vi), pad.t);
+    ctx.lineTo(xAt(vi), pad.t + plotH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  const ranges = {
+    t:  layers.t  ? [Math.floor(Math.min(...series.t)) - 2, Math.ceil(Math.max(...series.t)) + 2] : [0, 30],
+    td: layers.td ? [Math.floor(Math.min(...series.td)) - 2, Math.ceil(Math.max(...series.td)) + 2] : [0, 30],
+    h:  [0, 100],
+    w:  layers.w ? [0, Math.ceil(Math.max(...series.ws, 10)) * 1.15] : [0, 30],
+    r:  [0, 50],
+    p:  layers.p ? [Math.floor(Math.min(...series.ps)) - 2, Math.ceil(Math.max(...series.ps)) + 2] : [1000, 1030],
+    c:  [0, 100]
+  };
+  const axisDefs = {
+    t:  { unit: '°C',   color: '#ff9d9d' },
+    td: { unit: '°C',   color: '#7cd8ff' },
+    h:  { unit: '%',    color: '#70e0b8' },
+    w:  { unit: 'km/h', color: '#70e070' },
+    r:  { unit: 'mm/3h', color: '#80b8ff' },
+    p:  { unit: 'hPa',  color: '#f0d070' },
+    c:  { unit: '%',    color: '#b8c8dc' }
+  };
+
+  function drawAxis(x, key) {
+    const def = axisDefs[key];
+    const [minVal, maxVal] = ranges[key];
+
+    ctx.strokeStyle = def.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, pad.t);
+    ctx.lineTo(x, pad.t + plotH);
+    ctx.stroke();
+
+    ctx.fillStyle = def.color;
+    ctx.font = "bold 30px system-ui";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(def.unit, x, pad.t - 12);
+
+    ctx.font = "27px system-ui";
+    ctx.textAlign = "right";
+    for (let k = 0; k <= 5; k++) {
+      const y = pad.t + plotH * k / 5;
+      const val = maxVal - (maxVal - minVal) * k / 5;
+
+      ctx.beginPath();
+      ctx.moveTo(x - 3, y);
+      ctx.lineTo(x + 3, y);
+      ctx.stroke();
+
+      ctx.fillText(val.toFixed(0), x - 8, y + 9);
+    }
+  }
+
+  let lx = pad.l - 18;
+  leftKeys.forEach(k => { drawAxis(lx, k); lx -= slot; });
+
+  let rx = pad.l + plotW + 8;
+  rightKeys.forEach(k => { drawAxis(rx, k); rx += slot; });
+
+  const leg = [];
+  if (layers.t)  leg.push(["气温", "#ff9d9d"]);
+  if (layers.td) leg.push(["露点", "#7cd8ff"]);
+  if (layers.h)  leg.push(["湿度", "#70e0b8"]);
+  if (layers.w)  leg.push(["风速", "#70e070"]);
+  if (layers.g)  leg.push(["阵风", "#ffb060"]);
+  if (layers.r)  leg.push(["降水 (mm/3h)", "#80b8ff"]);
+  if (layers.pp) leg.push(["降水概率", "#a0ccff"]);
+  if (layers.p)  leg.push(["气压", "#f0d070"]);
+  if (layers.c)  leg.push(["云量", "#b8c8dc"]);
+  if (layers.barb) leg.push(["风矢", "#e8f0ff"]);
+  $("#legend").innerHTML = leg.map(([n, c]) =>
+    `<span class="leg-item"><span class="leg-swatch" style="background:${c}"></span>${n}</span>`
+  ).join("");
+}
+
+function renderDetail() {
+  if (!D) return;
+  const h = D.hourly;
+
+  const cards = [
+    ["气温", h.temperature_2m[0].toFixed(1) + " °C"],
+    ["湿度", h.relative_humidity_2m[0] + " %"],
+    ["风速", h.wind_speed_10m[0].toFixed(1) + " km/h"],
+    ["阵风", h.wind_gusts_10m[0].toFixed(1) + " km/h"],
+    ["海平面气压", h.pressure_msl[0].toFixed(0) + " hPa"],
+    ["云量", h.cloud_cover[0] + " %"],
+    ["露点", h.dew_point_2m[0].toFixed(1) + " °C"],
+    ["体感", h.apparent_temperature[0].toFixed(1) + " °C"]
+  ];
+  $("#cards").innerHTML = cards.map(([k, v]) =>
+    `<div class="mcard"><span class="muted">${k}</span><b>${v}</b></div>`
+  ).join("");
+
+  drawDetail();
+}
+
+function drawDetail() {
+  if (!D) return;
+  const h = D.hourly;
+  const labels = h.time.map(ft);
+  const sel = $$('input[data-var]:checked').map(x => x.dataset.var);
+  const sets = [];
+  const add = (key, label, arr, yAxis = 'y', dash = []) => {
+    if (sel.includes(key)) sets.push({
+      label, data: arr, borderWidth: 2, pointRadius: 0, tension: .25,
+      yAxisID: yAxis, borderDash: dash
+    });
+  };
+  add('temp', '气温 °C', h.temperature_2m);
+  add('dew', '露点 °C', h.dew_point_2m);
+  add('apparent', '体感 °C', h.apparent_temperature);
+  add('humidity', '湿度 %', h.relative_humidity_2m, 'y2');
+  add('precip', '降水 mm', h.precipitation, 'y2');
+  add('wind', '风速 km/h', h.wind_speed_10m, 'y2');
+  add('gust', '阵风 km/h', h.wind_gusts_10m, 'y2');
+  add('pressure', '气压 hPa', h.pressure_msl, 'y2');
+  add('cloud', '云量 %', h.cloud_cover, 'y2');
+
+  if (chart) chart.destroy();
+  chart = new Chart($('#dchart'), {
+    type: 'line',
+    data: { labels, datasets: sets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#334155', boxWidth: 14, font: { size: 11 } } },
+        tooltip: { callbacks: { title: i => labels[i[0].dataIndex] } }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#64748b', maxTicksLimit: 12, font: { size: 10 } },
+          grid: { color: '#e2e8f0' }
+        },
+        y: {
+          ticks: { color: '#2563eb', font: { size: 10 } },
+          grid: { color: '#e2e8f0' },
+          title: { display: true, text: '温度 / °C', color: '#2563eb', font: { size: 11 } }
+        },
+        y2: {
+          position: 'right',
+          ticks: { color: '#0d9488', font: { size: 10 } },
+          grid: { drawOnChartArea: false },
+          title: { display: true, text: '其他变量', color: '#0d9488', font: { size: 11 } }
+        }
+      }
+    }
+  });
+}
+
+async function captureImage() {
+  await bgReady;
+
+  exportMode = true;
+  document.body.classList.add('exporting');
+  applySize();
+  render();
+  await new Promise(r => setTimeout(r, 250));
+
+  const target = $("#out");
+  let canvas = null;
+
+  try {
+    canvas = await html2canvas(target, {
+      scale: 2,
+      backgroundColor: "#0b1520",
+      useCORS: true,
+      logging: false,
+      imageTimeout: 15000,
+      removeContainer: true
+    });
+  } catch (err) {
+    console.warn("html2canvas 首次失败，尝试回退方案:", err);
+    try {
+      canvas = await html2canvas(target, {
+        scale: 2,
+        backgroundColor: "#0b1520",
+        useCORS: false,
+        allowTaint: true,
+        logging: false,
+        imageTimeout: 15000
+      });
+    } catch (err2) {
+      exportMode = false;
+      document.body.classList.remove('exporting');
+      applySize();
+      render();
+      throw new Error("html2canvas 无法渲染：请确认 background.jpg 与 HTML 在同一目录，或用本地服务器打开");
+    }
+  }
+
+  exportMode = false;
+  document.body.classList.remove('exporting');
+  applySize();
+  render();
+
+  return canvas;
+}
+
+async function exp() {
+  try {
+    const c = await captureImage();
+    let dataUrl;
+    try {
+      dataUrl = c.toDataURL("image/png", 0.95);
+    } catch (err) {
+      throw new Error("画布被污染，无法导出。请把 HTML 和 background.jpg 放在同一目录，或用本地服务器（如 python -m http.server）打开页面");
+    }
+    const a = document.createElement("a");
+    a.download = `NWP_${S.name}_${$("#lead").value}h_${$("#size").value}.png`;
+    a.href = dataUrl;
+    a.click();
+    $("#status").textContent = "PNG 已导出(高清) · " + $("#size").value;
+  } catch (err) {
+    console.error("导出失败:", err);
+    $("#status").textContent = "导出失败：" + err.message;
+  }
+}
+
+async function copy() {
+  try {
+    const c = await captureImage();
+    c.toBlob(async b => {
+      if (!b) {
+        $("#status").textContent = "生成图片失败，请改用导出 PNG";
+        return;
+      }
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": b })]);
+        $("#status").textContent = "已复制高清图片到剪贴板";
+      } catch (e) {
+        $("#status").textContent = "浏览器不支持复制，请导出 PNG";
+      }
+    }, "image/png");
+  } catch (err) {
+    console.error("复制失败:", err);
+    $("#status").textContent = "复制失败：" + err.message;
+  }
+}
+
+$$(".model").forEach(b => b.onclick = () => {
+  $$(".model").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  S.m = b.dataset.m;
+  load().catch(e => $("#status").textContent = e.message);
+});
+$("#search").onclick = () => geo().then(load).catch(e => $("#status").textContent = e.message);
+$("#refresh").onclick = () => load().catch(e => $("#status").textContent = e.message);
+$("#export").onclick = exp;
+$("#copy").onclick = copy;
+$("#lead").onchange = () => {
+  $("#meta").innerHTML = `${S.name}<br>${S.lat.toFixed(3)}°N, ${S.lon.toFixed(3)}°E<br>预报时效 ${$("#lead").value} h`;
+  render();
+};
+$("#days").onchange = () => load().catch(e => $("#status").textContent = e.message);
+$("#size").onchange = () => { applySize(); render(); };
+$$('input[data-p]').forEach(x => x.onchange = render);
+$$('input[data-var]').forEach(x => x.onchange = drawDetail);
+
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { applySize(); render(); }, 120);
+});
+
+load().catch(e => $("#status").textContent = e.message);
+</script>
+</body>
+</html>
