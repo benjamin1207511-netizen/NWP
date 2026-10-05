@@ -1,4 +1,4 @@
-/ netlify/edge-functions/models-proxy.js —— 模式对比页代理（Netlify Edge）
+// netlify/edge-functions/models-proxy.js —— 模式对比页代理（Netlify Edge）
 // 缓存：确定性时间桶 + Netlify-CDN-Cache-Control（CDN 按 URL 缓存 10 分钟）
 const ALLOWED_DOMAINS = new Set([
   'api.open-meteo.com',
@@ -6,8 +6,8 @@ const ALLOWED_DOMAINS = new Set([
 ]);
 
 const ALLOWED_ORIGINS = new Set([
-  'benevolent-kringle-7bb9b2.netlify.app',      // 【必改】实际 Netlify 域名
-  // 'https://benjamin1207511-netizen.github.io/NWP/',     // 多平台并存期可保留
+  'https://benevolent-kringle-7bb9b2.netlify.app',  // Origin 头只含协议+域名，不含路径
+  'https://benjamin1207511-netizen.github.io',      // GitHub Pages 跨域调用
 ]);
 
 const TTL_MS = 10 * 60 * 1000;
@@ -32,10 +32,17 @@ export default async (request) => {
   const upstream = new URL(t.toString());
   upstream.searchParams.set('_ts', String(bucket));
 
-  const resp = await fetch(upstream.toString(), {
-    headers: { 'User-Agent': 'SMC-Club-WeatherStack/1.0' },
-  });
-  const body = await resp.text();
+  let resp, body;
+  try {
+    resp = await fetch(upstream.toString(), {
+      headers: { 'User-Agent': 'SMC-Club-WeatherStack/1.0' },
+    });
+    body = await resp.text();
+  } catch (e) {
+    const h = corsHeaders(request);
+    h.set('Content-Type', 'application/json');
+    return new Response(JSON.stringify({ error: 'upstream fetch failed' }), { status: 502, headers: h });
+  }
 
   const h = corsHeaders(request);
   h.set('Content-Type', 'application/json');
